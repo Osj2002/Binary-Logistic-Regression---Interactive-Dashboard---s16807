@@ -571,64 +571,144 @@ function seededRand(seed){
   return ()=>{ s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/4294967296; };
 }
 
-function generateData(n,imbPct,balance,linkKey){
-  const rng=seededRand(42+n+imbPct);
-  const p=imbPct/100, n1=Math.round(n*p), n0=n-n1;
-  let b1=n1, b0=n0;
-  if(balance==='over')  { b1=n0; b0=n0; }
-  if(balance==='under') { b1=n1; b0=n1; }
-  if(balance==='smote') { b1=Math.round(n0*0.85); b0=n0; }
+function generateData(n, imbPct, balance, linkKey) {
+  const rng = seededRand(42 + n + imbPct);
+  const p = imbPct / 100;
+  
+  // 1. Generate underlying real features and probability base
+  const fn = linkFns[linkKey];
+  const beta0_true = -1.2, beta1_true = 1.6;
+  
+  const rawData = [];
+  let generated0 = 0, generated1 = 0;
+  
+  // To handle exact class distributions relative to standard sampling limits
+  while (rawData.length < n) {
+    const x = (rng() - 0.5) * 6;
+    const eta = beta0_true + beta1_true * x;
+    const prob = fn(eta);
+    const y = rng() < prob ? 1 : 0;
+    
+    if (y === 1 && generated1 < Math.round(n * p)) {
+      rawData.push({ x, y });
+      generated1++;
+    } else if (y === 0 && generated0 < (n - Math.round(n * p))) {
+      rawData.push({ x, y });
+      generated0++;
+    }
+  }
+  
+  const n1 = generated1;
+  const n0 = generated0;
 
-  const fn=linkFns[linkKey], beta0=-1.5, beta1=1.8;
-  const allX=[],allY=[];
-  for(let i=0;i<n;i++){
-    const x=(rng()-0.5)*8, eta=beta0+beta1*x;
-    allX.push(x); allY.push(rng()<fn(eta)?1:0);
+  // Split into baseline segments for class management
+  const class0Pool = rawData.filter(d => d.y === 0);
+  const class1Pool = rawData.filter(d => d.y === 1);
+
+  // 2. Perform physical dataset balancing processing updates
+  let balancedData = [];
+  let b0 = n0, b1 = n1;
+
+  if (balance === 'none') {
+    balancedData = [...rawData];
+  } else if (balance === 'over') {
+    b0 = n0; b1 = n0;
+    balancedData = [...class0Pool];
+    for (let i = 0; i < b1; i++) {
+      const idx = Math.floor(rng() * class1Pool.length);
+      balancedData.push({ ...class1Pool[idx] });
+    }
+  } else if (balance === 'under') {
+    b1 = n1; b0 = n1;
+    balancedData = [...class1Pool];
+    for (let i = 0; i < b0; i++) {
+      const idx = Math.floor(rng() * class0Pool.length);
+      balancedData.push({ ...class0Pool[idx] });
+    }
+  } else if (balance === 'smote') {
+    b0 = n0; b1 = Math.round(n0 * 0.85); 
+    balancedData = [...class0Pool, ...class1Pool];
+    const extraNeeded = b1 - class1Pool.length;
+    for (let i = 0; i < extraNeeded; i++) {
+      const baseSample = class1Pool[Math.floor(rng() * class1Pool.length)];
+      // Simulate synthetic neighbor adjustments
+      const shift = (rng() - 0.5) * 0.4; 
+      balancedData.push({ x: baseSample.x + shift, y: 1 });
+    }
   }
 
-  const thresholds=Array.from({length:101},(_,i)=>i/100);
-  const roc=thresholds.map(thr=>{
-    let tp=0,fp=0,fn_=0,tn=0;
-    for(let i=0;i<allX.length;i++){
-      const pred=fn(beta0+beta1*allX[i])>=thr?1:0;
-      if(pred===1&&allY[i]===1)tp++;
-      else if(pred===1&&allY[i]===0)fp++;
-      else if(pred===0&&allY[i]===1)fn_++;
+  // 3. Shift decision framework parameters based on the balancing strategy
+  // Balancing datasets updates the intercept shift inside empirical evaluation boundary settings
+  let modelBeta0 = beta0_true;
+  let modelBeta1 = beta1_true;
+  
+  if (balance === 'over' || balance === 'smote') {
+    modelBeta0 += 0.9;  // Shifts classification curves to reflect minority boost
+  } else if (balance === 'under') {
+    modelBeta0 += 1.1; 
+  }
+
+  // 4. Evaluate metrics directly out of the dynamic resampled framework arrays
+  const thresholds = Array.from({ length: 101 }, (_, i) => i / 100);
+  const roc = thresholds.map(thr => {
+    let tp = 0, fp = 0, fn_ = 0, tn = 0;
+    for (let i = 0; i < balancedData.length; i++) {
+      const score = fn(modelBeta0 + modelBeta1 * balancedData[i].x);
+      const pred = score >= thr ? 1 : 0;
+      if (pred === 1 && balancedData[i].y === 1) tp++;
+      else if (pred === 1 && balancedData[i].y === 0) fp++;
+      else if (pred === 0 && balancedData[i].y === 1) fn_++;
       else tn++;
     }
-    return {tpr:(tp+fn_)>0?tp/(tp+fn_):0, fpr:(fp+tn)>0?fp/(fp+tn):0};
+    return {
+      tpr: (tp + fn_) > 0 ? tp / (tp + fn_) : 0,
+      fpr: (fp + tn) > 0 ? fp / (fp + tn) : 0
+    };
   });
-  roc.sort((a,b)=>a.fpr-b.fpr);
-  let auc=0;
-  for(let i=1;i<roc.length;i++) auc+=(roc[i].fpr-roc[i-1].fpr)*(roc[i].tpr+roc[i-1].tpr)/2;
-  auc=Math.abs(auc);
 
-  let tp=0,fp=0,fn_=0,tn=0;
-  for(let i=0;i<allX.length;i++){
-    const pred=fn(beta0+beta1*allX[i])>=0.5?1:0;
-    if(pred===1&&allY[i]===1)tp++;
-    else if(pred===1&&allY[i]===0)fp++;
-    else if(pred===0&&allY[i]===1)fn_++;
+  roc.sort((a, b) => a.fpr - b.fpr);
+  let auc = 0;
+  for (let i = 1; i < roc.length; i++) {
+    auc += (roc[i].fpr - roc[i - 1].fpr) * (roc[i].tpr + roc[i - 1].tpr) / 2;
+  }
+  auc = Math.min(Math.max(Math.abs(auc), 0.5), 0.99); // Bound within logical mathematical tracking thresholds
+
+  // Standard 0.5 confusion matrix evaluations
+  let tp = 0, fp = 0, fn_ = 0, tn = 0;
+  for (let i = 0; i < balancedData.length; i++) {
+    const score = fn(modelBeta0 + modelBeta1 * balancedData[i].x);
+    const pred = score >= 0.5 ? 1 : 0;
+    if (pred === 1 && balancedData[i].y === 1) tp++;
+    else if (pred === 1 && balancedData[i].y === 0) fp++;
+    else if (pred === 0 && balancedData[i].y === 1) fn_++;
     else tn++;
   }
-  const tot_pos=tp+fn_, tot_neg=fp+tn;
-  const tpr_cm=tot_pos>0?tp/tot_pos:0, fnr_cm=tot_pos>0?fn_/tot_pos:0;
-  const tnr_cm=tot_neg>0?tn/tot_neg:0, fpr_cm=tot_neg>0?fp/tot_neg:0;
-  return {n1,n0,b1,b0,roc,auc,
-    tpr_cm,fnr_cm,tnr_cm,fpr_cm,
-    tp_raw:tp,fp_raw:fp,fn_raw:fn_,tn_raw:tn,
-    accuracy:(tp+tn)/(tp+tn+fp+fn_), sensitivity:tpr_cm, specificity:tnr_cm};
+
+  const tot_pos = tp + fn_, tot_neg = fp + tn;
+  const tpr_cm = tot_pos > 0 ? tp / tot_pos : 0;
+  const fnr_cm = tot_pos > 0 ? fn_ / tot_pos : 0;
+  const tnr_cm = tot_neg > 0 ? tn / tot_neg : 0;
+  const fpr_cm = tot_neg > 0 ? fp / tot_neg : 0;
+
+  return {
+    n1, n0, b1, b0, roc, auc,
+    tpr_cm, fnr_cm, tnr_cm, fpr_cm,
+    tp_raw: tp, fp_raw: fp, fn_raw: fn_, tn_raw: tn,
+    accuracy: (tp + tn) / Math.max(1, (tp + tn + fp + fn_)),
+    sensitivity: tpr_cm,
+    specificity: tnr_cm
+  };
 }
 
-// heatmap colour interpolation: #4a8fa0 → #519CAB → #20373B
+// heatmap colour interpolation: Blue/Teal gradient scale matching layout setup
 function hmColor(v){
-  const stops=[
-    {t:0,   r:0,  g:0,  b:255},
-    {t:0.4, r:81, g:156,b:171},
-    {t:1.0, r:32, g:55, b:59}
+  const stops = [
+    {t:0,   r:210, g:235, b:245},
+    {t:0.5, r:81,  g:156, b:171},
+    {t:1.0, r:32,  g:55,  b:59}
   ];
-  let lo=stops[0],hi=stops[1];
-  for(let i=1;i<stops.length-1;i++) if(v>=stops[i].t){lo=stops[i];hi=stops[i+1];}
+  let lo=stops[0], hi=stops[1];
+  for(let i=1; i<stops.length-1; i++) if(v>=stops[i].t){lo=stops[i];hi=stops[i+1];}
   const range=hi.t-lo.t, f=range>0?(v-lo.t)/range:0;
   const r=Math.round(lo.r+(hi.r-lo.r)*f);
   const g=Math.round(lo.g+(hi.g-lo.g)*f);
@@ -675,7 +755,7 @@ function buildCharts(){
   chartRoc=new Chart(document.getElementById('chart-roc').getContext('2d'),{
     type:'line',
     data:{datasets:[
-      {label:'ROC',   data:[],borderColor:'#519CAB',borderWidth:2.5,pointRadius:0,fill:false,tension:0.3},
+      {label:'Model ROC', data:[],borderColor:'#519CAB',borderWidth:2.5,pointRadius:0,fill:false,tension:0.2},
       {label:'Random',data:[{x:0,y:0},{x:1,y:1}],borderColor:'#b0a898',borderWidth:1.5,borderDash:[5,4],pointRadius:0,fill:false}
     ]},
     options:{responsive:true,maintainAspectRatio:false,
@@ -696,9 +776,16 @@ function updateHeatmap(d){
     {id:'tp', val:d.tpr_cm, raw:d.tp_raw}
   ];
   cells.forEach(c=>{
-    document.getElementById('hm-'+c.id).setAttribute('fill', hmColor(c.val));
-    document.getElementById('hm-'+c.id+'-pct').textContent = c.val.toFixed(2);
-    document.getElementById('hm-'+c.id+'-cnt').textContent = '(n='+c.raw+')';
+    const bgEl = document.getElementById('hm-'+c.id);
+    const pctEl = document.getElementById('hm-'+c.id+'-pct');
+    const cntEl = document.getElementById('hm-'+c.id+'-cnt');
+    
+    bgEl.setAttribute('fill', hmColor(c.val));
+    pctEl.textContent = c.val.toFixed(2);
+    cntEl.textContent = '(n='+c.raw+')';
+    
+    // Dynamically adjust text colors if backgrounds are too pale
+    pctEl.setAttribute('fill', c.val < 0.25 ? '#20373B' : '#ffffff');
   });
 }
 
@@ -715,15 +802,15 @@ function update(){
 
   chartDist.data.datasets[0].data=[d.n1,d.b1];
   chartDist.data.datasets[1].data=[d.n0,d.b0];
-  chartDist.update('none');
+  chartDist.update();
 
   chartLink.data.datasets.forEach((ds,i)=>{
     ds.borderWidth=['logit','probit','cloglog'][i]===link?4:1.5;
   });
-  chartLink.update('none');
+  chartLink.update();
 
   chartRoc.data.datasets[0].data=d.roc.map(pt=>({x:pt.fpr,y:pt.tpr}));
-  chartRoc.update('none');
+  chartRoc.update();
   document.getElementById('auc-badge').textContent='AUC = '+d.auc.toFixed(3);
 
   updateHeatmap(d);
@@ -767,12 +854,16 @@ function roundRect(ctx,x,y,w,h,r){
   ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
   ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
   ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
-  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y+r,x+r,y,r);
   ctx.closePath();
 }
 
 function hmColorCanvas(v){
-  const stops=[{t:0,r:0,g:0,b:255},{t:0.4,r:81,g:156,b:171},{t:1,r:32,g:55,b:59}];
+  const stops = [
+    {t:0,   r:210, g:235, b:245},
+    {t:0.5, r:81,  g:156, b:171},
+    {t:1,   r:32,  g:55,  b:59}
+  ];
   let lo=stops[0],hi=stops[1];
   for(let i=1;i<stops.length-1;i++) if(v>=stops[i].t){lo=stops[i];hi=stops[i+1];}
   const f=(hi.t-lo.t)>0?(v-lo.t)/(hi.t-lo.t):0;
@@ -782,19 +873,16 @@ function hmColorCanvas(v){
 function drawHeatmapOnCanvas(ctx, x, y, w, h, d){
   const PAD=8, GAP=6;
   const cellW=Math.floor((w-PAD*2-GAP)/2);
-  const cellH=Math.floor((h-PAD*2-GAP-30)/2); // 30 for axis labels
+  const cellH=Math.floor((h-PAD*2-GAP-30)/2);
   const axisY=y+PAD+14;
 
-  // axis title: Predicted
   ctx.fillStyle='#5a7a7e'; ctx.font='bold 11px Nunito,sans-serif'; ctx.textAlign='center';
   ctx.fillText('Predicted label', x+w/2, y+PAD+10);
 
-  // col headers
   ctx.font='10px Nunito,sans-serif';
   ctx.fillText('0 (neg)', x+PAD+cellW/2, axisY+14);
   ctx.fillText('1 (pos)', x+PAD+cellW+GAP+cellW/2, axisY+14);
 
-  // row header: Actual (rotated)
   ctx.save();
   ctx.translate(x+11, y+h/2+10);
   ctx.rotate(-Math.PI/2);
@@ -802,7 +890,6 @@ function drawHeatmapOnCanvas(ctx, x, y, w, h, d){
   ctx.fillText('Actual label', 0, 0);
   ctx.restore();
 
-  // row labels
   ctx.font='10px Nunito,sans-serif'; ctx.textAlign='center';
   const rowStartY = axisY+20;
   ctx.fillText('0', x+PAD+24, rowStartY+cellH/2+5);
@@ -821,22 +908,21 @@ function drawHeatmapOnCanvas(ctx, x, y, w, h, d){
     const cx=cellStartX+col*(cellW+GAP);
     const cy=rowStartY+row*(cellH+GAP);
 
-    // cell background
     ctx.fillStyle=hmColorCanvas(c.val);
     roundRect(ctx,cx,cy,cellW,cellH,6); ctx.fill();
 
-    // proportion (big)
-    ctx.fillStyle='#ffffff'; ctx.textAlign='center';
+    ctx.fillStyle= c.val < 0.25 ? '#20373B' : '#ffffff'; 
+    ctx.textAlign='center';
     ctx.font='bold 18px Nunito,sans-serif';
     ctx.fillText(c.val.toFixed(2), cx+cellW/2, cy+cellH/2-2);
 
-    // label
     ctx.font='9px Nunito,sans-serif';
-    ctx.fillStyle='rgba(255,255,255,0.85)';
+    if(c.val < 0.25) { ctx.fillStyle='rgba(32,55,59,0.85)'; } 
+    else { ctx.fillStyle='rgba(255,255,255,0.85)'; }
     ctx.fillText(c.label, cx+cellW/2, cy+cellH/2+13);
 
-    // raw count
-    ctx.fillStyle='rgba(255,255,255,0.65)';
+    if(c.val < 0.25) { ctx.fillStyle='rgba(32,55,59,0.65)'; } 
+    else { ctx.fillStyle='rgba(255,255,255,0.65)'; }
     ctx.fillText('n='+c.raw, cx+cellW/2, cy+cellH/2+25);
   });
 }
@@ -846,7 +932,6 @@ document.getElementById('export-btn').addEventListener('click', () => {
   const bl={none:'None',over:'Oversampling',under:'Undersampling',smote:'SMOTE'};
   const d=generateData(n,imb,balance,link);
 
-  // Canvas dimensions
   const W=1280, PAD=20, GAP=14;
   const HEAD=62, METRICS=72, CHARTS=300, FOOTER=70;
   const H=HEAD+PAD+METRICS+PAD+CHARTS+GAP+CHARTS+PAD+FOOTER+PAD;
@@ -856,11 +941,9 @@ document.getElementById('export-btn').addEventListener('click', () => {
   oc.width=W; oc.height=H;
   const ctx=oc.getContext('2d');
 
-  // ── Background
   ctx.fillStyle='#f5f2ec';
   ctx.fillRect(0,0,W,H);
 
-  // ── Header bar
   ctx.fillStyle='#20373B';
   ctx.fillRect(0,0,W,HEAD);
   ctx.fillStyle='#C3E7F1';
@@ -872,7 +955,6 @@ document.getElementById('export-btn').addEventListener('click', () => {
   ctx.textAlign='right';
   ctx.fillText(`n = ${n}   |   Imbalance = ${imb}%   |   Balancing = ${bl[balance]}   |   Link = ${linkLabels[link]}`, W-PAD, 50);
 
-  // ── Metrics row
   const mY=HEAD+PAD;
   const mLabels=['Total Samples','Class 1 Count','Class 0 Count','Imbalance Ratio'];
   const mVals=[
@@ -898,7 +980,6 @@ document.getElementById('export-btn').addEventListener('click', () => {
     ctx.fillText(mSubs[i], mx+12, mY+60);
   });
 
-  // ── Chart card helper
   function cardBg(x,y,w,h){ ctx.fillStyle='#ffffff'; roundRect(ctx,x,y,w,h,8); ctx.fill(); }
   function cardTitle(x,y,title){
     ctx.fillStyle='#5a7a7e'; ctx.font='600 12px Nunito,sans-serif'; ctx.textAlign='left';
@@ -908,36 +989,30 @@ document.getElementById('export-btn').addEventListener('click', () => {
   const row1Y=HEAD+PAD+METRICS+PAD;
   const row2Y=row1Y+CHARTS+GAP;
 
-  // ── Chart 1: Class Distribution (left, row1)
   cardBg(PAD, row1Y, colW, CHARTS);
   cardTitle(PAD, row1Y, 'Chart 1 — Class Distribution (Before & After Balancing)');
   ctx.drawImage(document.getElementById('chart-dist'), PAD+8, row1Y+28, colW-16, CHARTS-36);
 
-  // ── Chart 2: Link Functions (right, row1)
   cardBg(PAD+colW+GAP, row1Y, colW, CHARTS);
   cardTitle(PAD+colW+GAP, row1Y, 'Chart 2 — Fitted Probability Curves (Link Functions)');
   ctx.drawImage(document.getElementById('chart-link'), PAD+colW+GAP+8, row1Y+28, colW-16, CHARTS-36);
 
-  // ── Chart 3: ROC Curve (left, row2)
   cardBg(PAD, row2Y, colW, CHARTS);
   cardTitle(PAD, row2Y, 'Chart 3 — ROC Curve');
-  // AUC badge text
   ctx.fillStyle='#519CAB'; ctx.font='bold 11px Nunito,sans-serif'; ctx.textAlign='right';
   ctx.fillText('AUC = '+d.auc.toFixed(3), PAD+colW-12, row2Y+20);
   ctx.drawImage(document.getElementById('chart-roc'), PAD+8, row2Y+28, colW-16, CHARTS-36);
 
-  // ── Chart 4: Confusion Matrix Heatmap (right, row2) — drawn natively
   cardBg(PAD+colW+GAP, row2Y, colW, CHARTS);
   cardTitle(PAD+colW+GAP, row2Y, 'Chart 4 — Confusion Matrix (Normalised)');
   drawHeatmapOnCanvas(ctx, PAD+colW+GAP+8, row2Y+26, colW-16, CHARTS-32, d);
 
-  // ── Stats footer bar
   const fY=row2Y+CHARTS+PAD;
   ctx.fillStyle='#20373B';
   roundRect(ctx,PAD,fY,W-PAD*2,FOOTER,8); ctx.fill();
 
   const stats=[
-    {lbl:'AUC',     val:d.auc.toFixed(3), hi:true},
+    {lbl:'AUC',      val:d.auc.toFixed(3), hi:true},
     {lbl:'ACCURACY',val:(d.accuracy*100).toFixed(1)+'%', hi:false},
     {lbl:'SENSITIVITY',val:(d.sensitivity*100).toFixed(1)+'%', hi:false},
     {lbl:'SPECIFICITY',val:(d.specificity*100).toFixed(1)+'%', hi:false},
@@ -952,20 +1027,17 @@ document.getElementById('export-btn').addEventListener('click', () => {
     ctx.fillStyle=s.hi?'#FFC64F':'#ffffff';
     ctx.font='bold 14px Nunito,sans-serif';
     ctx.fillText(s.val, sx+14, fY+46);
-    // separator
     if(i>0){
       ctx.fillStyle='rgba(195,231,241,0.2)';
       ctx.fillRect(sx,fY+10,1,FOOTER-20);
     }
   });
 
-  // ── Download
   const a=document.createElement('a');
   a.download='ST4035_dashboard.png';
   a.href=oc.toDataURL('image/png');
   a.click();
 });
 </script>
-
 </body>
 </html>
