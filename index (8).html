@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ST4035 — Binary Logistic Regression Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --lb:      #C3E7F1;
+    --moon:    #519CAB;
+    --saffron: #FFC64F;
+    --gun:     #20373B;
+    --bg:      #f5f2ec;
+    --surface: #ffffff;
+    --surface2:#e8f5f9;
+    --border:  rgba(32,55,59,0.12);
+    --border2: rgba(32,55,59,0.22);
+    --text:    #20373B;
+    --muted:   #5a7a7e;
+    --card-r:  10px;
+    --font-head:    'Nunito', sans-serif;
+    --font-display: 'Nunito', sans-serif;
+    --font-mono:    'Nunito', sans-serif;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: var(--font-head); min-height: 100vh; }
+
+  header {
+    background: var(--gun);
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+  }
+  header h1 {
+    font-family: var(--font-head);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--lb);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+    margin-left: 20px;
+  }
+  .header-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+  }
+  .header-meta .hm-top {
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--lb);
+    letter-spacing: 0.02em;
+  }
+  .header-meta .hm-sub {
+    font-family: var(--font-head);
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(195,231,241,0.65);
+    letter-spacing: 0.01em;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: calc(100vh - 51px);
+    min-width: 0;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1.5px solid var(--border2);
+    padding: 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    overflow-y: auto;
+    min-width: 0;
+  }
+
+  .main {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+    background: var(--bg);
+    min-width: 0;
+  }
+
+  .ctrl-group label.group-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 10px;
+  }
+
+  .slider-row { display: flex; flex-direction: column; gap: 8px; }
+  .slider-row .val-row { display: flex; justify-content: space-between; align-items: center; }
+  .slider-row .val-row .label-sm { font-size: 12px; color: var(--muted); }
+  .slider-row .val-row span.val {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--moon);
+    font-weight: 600;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--lb);
+    border-radius: 2px;
+    outline: none;
+    border: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: var(--moon);
+    cursor: pointer;
+    border: 2.5px solid #fff;
+    box-shadow: 0 0 0 1.5px var(--moon);
+  }
+
+  .toggle-group { display: flex; flex-direction: column; gap: 6px; }
+  .toggle-btn {
+    background: transparent;
+    border: 1.5px solid var(--border2);
+    color: var(--muted);
+    font-family: var(--font-head);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+  }
+  .toggle-btn:hover { border-color: var(--moon); color: var(--text); background: var(--surface2); }
+  .toggle-btn.active {
+    background: var(--surface2);
+    border-color: var(--moon);
+    color: var(--gun);
+    font-weight: 700;
+  }
+  .toggle-btn.active-saffron {
+    background: rgba(255,198,79,0.15);
+    border-color: var(--saffron);
+    color: #7a5a00;
+    font-weight: 700;
+  }
+  .toggle-btn.active-saffron:hover { background: rgba(255,198,79,0.2); border-color: var(--saffron); }
+
+  /* ── Metrics ── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .metric-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border2);
+    border-radius: var(--card-r);
+    padding: 14px 16px;
+    border-top: 3px solid var(--moon);
+    min-width: 0;
+  }
+  .metric-card:nth-child(2) { border-top-color: var(--saffron); }
+  .metric-card:nth-child(3) { border-top-color: var(--gun); }
+  .metric-card:nth-child(4) { border-top-color: #88c0cc; }
+  .metric-card .m-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+  }
+  .metric-card .m-value {
+    font-family: var(--font-mono); font-size: 22px; font-weight: 600;
+    color: var(--text); line-height: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .metric-card .m-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* ── Charts ── */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .chart-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border2);
+    border-radius: var(--card-r);
+    padding: 14px 16px;
+    min-width: 0;
+  }
+  .chart-card h3 {
+    font-family: var(--font-display);
+    font-size: 12px; font-weight: 400;
+    color: var(--muted); margin-bottom: 8px; letter-spacing: 0.01em;
+  }
+  .chart-wrap { position: relative; width: 100%; height: 205px; }
+
+  .legend-row {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin-bottom: 8px; font-size: 11px; color: var(--muted); font-weight: 600;
+  }
+  .leg-item { display: flex; align-items: center; gap: 5px; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── Heatmap ── */
+  #heatmap-wrap {
+    width: 100%; display: flex; justify-content: center; align-items: center;
+    height: 205px;
+  }
+  #heatmap-svg { width: 100%; max-width: 320px; height: auto; display: block; margin: auto; }
+
+  /* ── AUC badge ── */
+  .auc-badge {
+    font-family: var(--font-mono); font-size: 11px;
+    background: rgba(81,156,171,0.12);
+    color: var(--moon);
+    border: 1.5px solid rgba(81,156,171,0.3);
+    border-radius: 20px; padding: 3px 10px;
+    position: absolute; top: 0; right: 0;
+  }
+
+  /* ── Footer ── */
+  .info-footer {
+    background: var(--gun);
+    border-radius: var(--card-r);
+    padding: 14px 20px;
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  }
+  .fi-item { display: flex; flex-direction: column; gap: 2px; }
+  .fi-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--lb); opacity: 0.7; font-weight: 700; }
+  .fi-val { font-family: var(--font-mono); font-size: 13px; color: #fff; font-weight: 600; }
+  .fi-val.hi { color: var(--saffron); }
+  .sep { width: 1px; height: 28px; background: rgba(195,231,241,0.2); }
+
+  /* ── Tooltip ── */
+  .chart-title-row {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+  }
+  .chart-title-row h3 { margin-bottom: 0; }
+  .info-icon {
+    position: relative; display: inline-flex; align-items: center;
+    justify-content: center; flex-shrink: 0;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--surface2); border: 1.5px solid var(--border2);
+    cursor: pointer; font-size: 10px; font-weight: 700;
+    color: var(--moon); font-family: var(--font-mono);
+    line-height: 1; user-select: none;
+  }
+  .info-icon:hover { background: var(--moon); color: #fff; border-color: var(--moon); }
+  .info-icon .tip {
+    display: none;
+    position: absolute; bottom: calc(100% + 7px); left: 50%;
+    transform: translateX(-50%);
+    background: var(--gun); color: var(--lb);
+    font-family: var(--font-head); font-size: 11px; font-weight: 600;
+    line-height: 1.4; white-space: nowrap;
+    padding: 6px 10px; border-radius: 6px;
+    pointer-events: none; z-index: 99;
+  }
+  .info-icon .tip::after {
+    content: ''; position: absolute; top: 100%; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: var(--gun);
+  }
+  .info-icon:hover .tip,
+  .info-icon:focus .tip { display: block; }
+
+  /* ── Export button ── */
+  .export-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(195,231,241,0.12);
+    border: 1.5px solid rgba(195,231,241,0.35);
+    color: var(--lb); font-family: var(--font-mono);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    padding: 6px 14px; border-radius: 20px; cursor: pointer;
+    transition: all 0.15s ease; white-space: nowrap; flex-shrink: 0;
+    margin-left: auto;
+  }
+  .export-btn:hover { background: rgba(195,231,241,0.22); border-color: var(--lb); }
+  .export-btn svg { width: 13px; height: 13px; fill: none; stroke: var(--lb); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1.5px solid var(--border2); }
+    .charts-grid { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  }
+  @media (min-width: 901px) and (max-width: 1100px) {
+    .layout { grid-template-columns: 230px 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Binary Logistic Regression — Interactive Dashboard</h1>
+  <div class="header-right">
+    <div class="header-meta">
+      <span class="hm-top">ST 4035 · Data Science</span>
+      <span class="hm-sub">S16807 · O.S. Jayathunga</span>
+    </div>
+    <button class="export-btn" id="export-btn" title="Save dashboard as PNG">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M5 7l3 3 3-3M3 12h10"/></svg>
+      Export PNG
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" aria-label="Dashboard controls">
+
+    <div class="ctrl-group">
+      <label class="group-label">Sample Size</label>
+      <div class="slider-row">
+        <div class="val-row">
+          <span class="label-sm">n</span>
+          <span class="val" id="n-display">500</span>
+        </div>
+        <input type="range" id="n-slider" min="100" max="2000" step="50" value="500" aria-label="Sample size">
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <label class="group-label">Class Imbalance Ratio</label>
+      <div class="slider-row">
+        <div class="val-row">
+          <span class="label-sm">Minority class</span>
+          <span class="val" id="imb-display">20%</span>
+        </div>
+        <input type="range" id="imb-slider" min="5" max="50" step="5" value="20" aria-label="Class imbalance ratio">
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <label class="group-label">Balancing Method</label>
+      <div class="toggle-group" id="balance-group" role="radiogroup" aria-label="Balancing method">
+        <button class="toggle-btn active" data-val="none">None (imbalanced)</button>
+        <button class="toggle-btn" data-val="over">Oversampling</button>
+        <button class="toggle-btn" data-val="under">Undersampling</button>
+        <button class="toggle-btn" data-val="smote">SMOTE</button>
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <label class="group-label">Link Function</label>
+      <div class="toggle-group" id="link-group" role="radiogroup" aria-label="Link function">
+        <button class="toggle-btn active-saffron" data-val="logit">Logit</button>
+        <button class="toggle-btn" data-val="probit">Probit</button>
+        <button class="toggle-btn" data-val="cloglog">Complementary log-log</button>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- Metrics -->
+    <div class="metrics-grid" aria-label="Summary metrics">
+      <div class="metric-card">
+        <div class="m-label">Total Samples</div>
+        <div class="m-value" id="m-total">500</div>
+        <div class="m-sub">after balancing</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">Class 1 Count</div>
+        <div class="m-value" id="m-c1">100</div>
+        <div class="m-sub">minority class</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">Class 0 Count</div>
+        <div class="m-value" id="m-c0">400</div>
+        <div class="m-sub">majority class</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">Imbalance Ratio</div>
+        <div class="m-value" id="m-ratio">1 : 4.0</div>
+        <div class="m-sub">class 1 : class 0</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+
+      <!-- Chart 1: Distribution -->
+      <div class="chart-card">
+        <div class="chart-title-row">
+          <h3>Chart 1 — Class Distribution (Before &amp; After Balancing)</h3>
+          <span class="info-icon" tabindex="0" role="tooltip" aria-label="Chart explanation">i
+            <span class="tip">Shows how many samples are in each class before and after applying the balancing method.</span>
+          </span>
+        </div>
+        <div class="legend-row" aria-hidden="true">
+          <span class="leg-item"><span class="leg-dot" style="background:#519CAB"></span>Class 1 (minority)</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#FFC64F"></span>Class 0 (majority)</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-dist" role="img" aria-label="Grouped bar chart showing class distribution before and after balancing">Class distribution chart</canvas>
+        </div>
+      </div>
+
+      <!-- Chart 2: Link functions -->
+      <div class="chart-card">
+        <div class="chart-title-row">
+          <h3>Chart 2 — Fitted Probability Curves (Link Functions)</h3>
+          <span class="info-icon" tabindex="0" role="tooltip" aria-label="Chart explanation">i
+            <span class="tip">Each curve maps the linear predictor η to P(Y=1). Different link functions produce different S-shapes.</span>
+          </span>
+        </div>
+        <div class="legend-row" aria-hidden="true">
+          <span class="leg-item"><span class="leg-dot" style="background:#519CAB"></span>Logit (solid)</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#FFC64F"></span>Probit (dashed)</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#20373B"></span>Clog-log (dotted)</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-link" role="img" aria-label="Line chart of P(Y=1|eta) versus linear predictor eta for all three link functions">Link function curves</canvas>
+        </div>
+      </div>
+
+      <!-- Chart 3: ROC -->
+      <div class="chart-card" style="position:relative">
+        <div class="chart-title-row">
+          <h3>Chart 3 — ROC Curve</h3>
+          <span class="info-icon" tabindex="0" role="tooltip" aria-label="Chart explanation">i
+            <span class="tip">Plots sensitivity vs. (1 − specificity) across all thresholds. A perfect model hugs the top-left corner.</span>
+          </span>
+        </div>
+        <div class="legend-row" aria-hidden="true">
+          <span class="leg-item"><span class="leg-dot" style="background:#519CAB"></span>Model ROC</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#c8c3ba"></span>Random (diagonal)</span>
+          <span id="auc-badge" class="auc-badge">AUC = 0.00</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-roc" role="img" aria-label="ROC curve showing sensitivity versus 1 minus specificity">ROC curve</canvas>
+        </div>
+      </div>
+
+      <!-- Chart 4: Confusion Matrix Heatmap -->
+      <div class="chart-card">
+        <div class="chart-title-row">
+          <h3>Chart 4 — Confusion Matrix (Normalised)</h3>
+          <span class="info-icon" tabindex="0" role="tooltip" aria-label="Chart explanation">i
+            <span class="tip">Proportions of correct and incorrect predictions. Darker = higher rate. Diagonal cells are good.</span>
+          </span>
+        </div>
+        <div class="legend-row" aria-hidden="true">
+          <span class="leg-item"><span class="leg-dot" style="background:#0000FF"></span>Low rate</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#519CAB"></span>Mid rate</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#20373B"></span>High rate</span>
+        </div>
+        <div id="heatmap-wrap" aria-label="Normalised confusion matrix heatmap">
+          <svg id="heatmap-svg" viewBox="0 0 300 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="2x2 confusion matrix heatmap with normalised values">
+            <title>Normalised Confusion Matrix</title>
+            <!-- axis labels -->
+            <text x="150" y="14" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="10" fill="#5a7a7e">Predicted label</text>
+            <text x="150" y="26" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="9" fill="#5a7a7e">0 (negative)         1 (positive)</text>
+            <text x="12" y="130" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="10" fill="#5a7a7e" transform="rotate(-90,12,130)">Actual label</text>
+            <text x="30" y="98"  text-anchor="middle" font-family="'Nunito',sans-serif" font-size="9"  fill="#5a7a7e">0</text>
+            <text x="30" y="168" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="9"  fill="#5a7a7e">1</text>
+            <text x="95"  y="46" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="9"  fill="#5a7a7e">0</text>
+            <text x="205" y="46" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="9"  fill="#5a7a7e">1</text>
+
+            <!-- TN top-left -->
+            <rect id="hm-tn"  x="42" y="52"  width="106" height="66" rx="5"/>
+            <text id="hm-tn-pct"  x="95"  y="82"  text-anchor="middle" font-family="'Nunito',sans-serif" font-size="15" font-weight="600" fill="#fff">0.00</text>
+            <text x="95"  y="98"  text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.75)">True Neg.</text>
+            <text id="hm-tn-cnt" x="95"  y="109" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.65)">(n=0)</text>
+
+            <!-- FP top-right -->
+            <rect id="hm-fp"  x="152" y="52"  width="106" height="66" rx="5"/>
+            <text id="hm-fp-pct"  x="205" y="82"  text-anchor="middle" font-family="'Nunito',sans-serif" font-size="15" font-weight="600" fill="#fff">0.00</text>
+            <text x="205" y="98"  text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.75)">False Pos.</text>
+            <text id="hm-fp-cnt" x="205" y="109" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.65)">(n=0)</text>
+
+            <!-- FN bottom-left -->
+            <rect id="hm-fn"  x="42" y="122" width="106" height="66" rx="5"/>
+            <text id="hm-fn-pct"  x="95"  y="152" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="15" font-weight="600" fill="#fff">0.00</text>
+            <text x="95"  y="168" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.75)">False Neg.</text>
+            <text id="hm-fn-cnt" x="95"  y="179" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.65)">(n=0)</text>
+
+            <!-- TP bottom-right -->
+            <rect id="hm-tp"  x="152" y="122" width="106" height="66" rx="5"/>
+            <text id="hm-tp-pct"  x="205" y="152" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="15" font-weight="600" fill="#fff">0.00</text>
+            <text x="205" y="168" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.75)">True Pos.</text>
+            <text id="hm-tp-cnt" x="205" y="179" text-anchor="middle" font-family="'Nunito',sans-serif" font-size="8"  fill="rgba(255,255,255,0.65)">(n=0)</text>
+          </svg>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="info-footer" aria-label="Summary statistics">
+      <div class="fi-item">
+        <span class="fi-label">AUC</span>
+        <span class="fi-val hi" id="fi-auc">—</span>
+      </div>
+      <div class="sep"></div>
+      <div class="fi-item">
+        <span class="fi-label">Accuracy</span>
+        <span class="fi-val" id="fi-acc">—</span>
+      </div>
+      <div class="sep"></div>
+      <div class="fi-item">
+        <span class="fi-label">Sensitivity</span>
+        <span class="fi-val" id="fi-sens">—</span>
+      </div>
+      <div class="sep"></div>
+      <div class="fi-item">
+        <span class="fi-label">Specificity</span>
+        <span class="fi-val" id="fi-spec">—</span>
+      </div>
+      <div class="sep"></div>
+      <div class="fi-item">
+        <span class="fi-label">Link Function</span>
+        <span class="fi-val" id="fi-link">Logit</span>
+      </div>
+      <div class="sep"></div>
+      <div class="fi-item">
+        <span class="fi-label">Balancing Method</span>
+        <span class="fi-val" id="fi-bal">None</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+const state = { n:500, imb:20, balance:'none', link:'logit' };
+
+const logit   = eta => 1/(1+Math.exp(-eta));
+const probit  = eta => {
+  const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+  const sign=eta<0?-1:1, x=Math.abs(eta)/Math.sqrt(2), t=1/(1+p*x);
+  const y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+  return 0.5*(1+sign*y);
+};
+const cloglog = eta => 1-Math.exp(-Math.exp(eta));
+const linkFns = {logit,probit,cloglog};
+const linkLabels = {logit:'Logit',probit:'Probit',cloglog:'Complementary log-log'};
+
+function seededRand(seed){
+  let s=seed|0;
+  return ()=>{ s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/4294967296; };
+}
+
+function generateData(n,imbPct,balance,linkKey){
+  const rng=seededRand(42+n+imbPct);
+  const p=imbPct/100, n1=Math.round(n*p), n0=n-n1;
+  let b1=n1, b0=n0;
+  if(balance==='over')  { b1=n0; b0=n0; }
+  if(balance==='under') { b1=n1; b0=n1; }
+  if(balance==='smote') { b1=Math.round(n0*0.85); b0=n0; }
+
+  const fn=linkFns[linkKey], beta0=-1.5, beta1=1.8;
+  const allX=[],allY=[];
+  for(let i=0;i<n;i++){
+    const x=(rng()-0.5)*8, eta=beta0+beta1*x;
+    allX.push(x); allY.push(rng()<fn(eta)?1:0);
+  }
+
+  const thresholds=Array.from({length:101},(_,i)=>i/100);
+  const roc=thresholds.map(thr=>{
+    let tp=0,fp=0,fn_=0,tn=0;
+    for(let i=0;i<allX.length;i++){
+      const pred=fn(beta0+beta1*allX[i])>=thr?1:0;
+      if(pred===1&&allY[i]===1)tp++;
+      else if(pred===1&&allY[i]===0)fp++;
+      else if(pred===0&&allY[i]===1)fn_++;
+      else tn++;
+    }
+    return {tpr:(tp+fn_)>0?tp/(tp+fn_):0, fpr:(fp+tn)>0?fp/(fp+tn):0};
+  });
+  roc.sort((a,b)=>a.fpr-b.fpr);
+  let auc=0;
+  for(let i=1;i<roc.length;i++) auc+=(roc[i].fpr-roc[i-1].fpr)*(roc[i].tpr+roc[i-1].tpr)/2;
+  auc=Math.abs(auc);
+
+  let tp=0,fp=0,fn_=0,tn=0;
+  for(let i=0;i<allX.length;i++){
+    const pred=fn(beta0+beta1*allX[i])>=0.5?1:0;
+    if(pred===1&&allY[i]===1)tp++;
+    else if(pred===1&&allY[i]===0)fp++;
+    else if(pred===0&&allY[i]===1)fn_++;
+    else tn++;
+  }
+  const tot_pos=tp+fn_, tot_neg=fp+tn;
+  const tpr_cm=tot_pos>0?tp/tot_pos:0, fnr_cm=tot_pos>0?fn_/tot_pos:0;
+  const tnr_cm=tot_neg>0?tn/tot_neg:0, fpr_cm=tot_neg>0?fp/tot_neg:0;
+  return {n1,n0,b1,b0,roc,auc,
+    tpr_cm,fnr_cm,tnr_cm,fpr_cm,
+    tp_raw:tp,fp_raw:fp,fn_raw:fn_,tn_raw:tn,
+    accuracy:(tp+tn)/(tp+tn+fp+fn_), sensitivity:tpr_cm, specificity:tnr_cm};
+}
+
+// heatmap colour interpolation: #4a8fa0 → #519CAB → #20373B
+function hmColor(v){
+  const stops=[
+    {t:0,   r:0,  g:0,  b:255},
+    {t:0.4, r:81, g:156,b:171},
+    {t:1.0, r:32, g:55, b:59}
+  ];
+  let lo=stops[0],hi=stops[1];
+  for(let i=1;i<stops.length-1;i++) if(v>=stops[i].t){lo=stops[i];hi=stops[i+1];}
+  const range=hi.t-lo.t, f=range>0?(v-lo.t)/range:0;
+  const r=Math.round(lo.r+(hi.r-lo.r)*f);
+  const g=Math.round(lo.g+(hi.g-lo.g)*f);
+  const b=Math.round(lo.b+(hi.b-lo.b)*f);
+  return `rgb(${r},${g},${b})`;
+}
+
+const GRID='rgba(32,55,59,0.07)';
+const TICK='#5a7a7e';
+const TFONT={size:10,family:"'Nunito',sans-serif"};
+
+let chartDist,chartLink,chartRoc;
+
+function buildCharts(){
+  chartDist=new Chart(document.getElementById('chart-dist').getContext('2d'),{
+    type:'bar',
+    data:{labels:['Before','After'],datasets:[
+      {label:'Class 1 (minority)',data:[0,0],backgroundColor:'#519CAB',borderWidth:0},
+      {label:'Class 0 (majority)',data:[0,0],backgroundColor:'#FFC64F',borderWidth:0}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:TICK,font:TFONT},grid:{color:GRID}},
+              y:{ticks:{color:TICK,font:TFONT},grid:{color:GRID}}}}
+  });
+
+  const etaVals=Array.from({length:80},(_,i)=>-4+i*8/79);
+  chartLink=new Chart(document.getElementById('chart-link').getContext('2d'),{
+    type:'line',
+    data:{labels:etaVals.map(v=>v.toFixed(1)),datasets:[
+      {label:'Logit',  data:etaVals.map(logit),  borderColor:'#519CAB',borderWidth:2,pointRadius:0,borderDash:[]},
+      {label:'Probit', data:etaVals.map(probit), borderColor:'#FFC64F',borderWidth:2,pointRadius:0,borderDash:[6,4]},
+      {label:'Cloglog',data:etaVals.map(cloglog),borderColor:'#20373B',borderWidth:2,pointRadius:0,borderDash:[2,4]}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{title:{display:true,text:'η (linear predictor)',color:TICK,font:{size:10}},
+           ticks:{color:TICK,font:TFONT,maxTicksLimit:9,autoSkip:true},grid:{color:GRID}},
+        y:{title:{display:true,text:'P(Y=1|η)',color:TICK,font:{size:10}},
+           ticks:{color:TICK,font:TFONT},min:0,max:1,grid:{color:GRID}}}}
+  });
+
+  chartRoc=new Chart(document.getElementById('chart-roc').getContext('2d'),{
+    type:'line',
+    data:{datasets:[
+      {label:'ROC',   data:[],borderColor:'#519CAB',borderWidth:2.5,pointRadius:0,fill:false,tension:0.3},
+      {label:'Random',data:[{x:0,y:0},{x:1,y:1}],borderColor:'#b0a898',borderWidth:1.5,borderDash:[5,4],pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{type:'linear',title:{display:true,text:'1 − Specificity (FPR)',color:TICK,font:{size:10}},
+           ticks:{color:TICK,font:TFONT},min:0,max:1,grid:{color:GRID}},
+        y:{title:{display:true,text:'Sensitivity (TPR)',color:TICK,font:{size:10}},
+           ticks:{color:TICK,font:TFONT},min:0,max:1,grid:{color:GRID}}}}
+  });
+}
+
+function updateHeatmap(d){
+  const cells=[
+    {id:'tn', val:d.tnr_cm, raw:d.tn_raw},
+    {id:'fp', val:d.fpr_cm, raw:d.fp_raw},
+    {id:'fn', val:d.fnr_cm, raw:d.fn_raw},
+    {id:'tp', val:d.tpr_cm, raw:d.tp_raw}
+  ];
+  cells.forEach(c=>{
+    document.getElementById('hm-'+c.id).setAttribute('fill', hmColor(c.val));
+    document.getElementById('hm-'+c.id+'-pct').textContent = c.val.toFixed(2);
+    document.getElementById('hm-'+c.id+'-cnt').textContent = '(n='+c.raw+')';
+  });
+}
+
+function update(){
+  const {n,imb,balance,link}=state;
+  const d=generateData(n,imb,balance,link);
+
+  document.getElementById('m-total').textContent = (d.b1+d.b0).toLocaleString();
+  document.getElementById('m-c1').textContent    = d.b1.toLocaleString();
+  document.getElementById('m-c0').textContent    = d.b0.toLocaleString();
+  document.getElementById('m-ratio').textContent = '1 : '+(d.b0/Math.max(d.b1,1)).toFixed(1);
+  document.getElementById('n-display').textContent   = n;
+  document.getElementById('imb-display').textContent = imb+'%';
+
+  chartDist.data.datasets[0].data=[d.n1,d.b1];
+  chartDist.data.datasets[1].data=[d.n0,d.b0];
+  chartDist.update('none');
+
+  chartLink.data.datasets.forEach((ds,i)=>{
+    ds.borderWidth=['logit','probit','cloglog'][i]===link?4:1.5;
+  });
+  chartLink.update('none');
+
+  chartRoc.data.datasets[0].data=d.roc.map(pt=>({x:pt.fpr,y:pt.tpr}));
+  chartRoc.update('none');
+  document.getElementById('auc-badge').textContent='AUC = '+d.auc.toFixed(3);
+
+  updateHeatmap(d);
+
+  document.getElementById('fi-auc').textContent  = d.auc.toFixed(3);
+  document.getElementById('fi-acc').textContent  = (d.accuracy*100).toFixed(1)+'%';
+  document.getElementById('fi-sens').textContent = (d.sensitivity*100).toFixed(1)+'%';
+  document.getElementById('fi-spec').textContent = (d.specificity*100).toFixed(1)+'%';
+  document.getElementById('fi-link').textContent = linkLabels[link];
+  const bl={none:'None',over:'Oversampling',under:'Undersampling',smote:'SMOTE'};
+  document.getElementById('fi-bal').textContent  = bl[balance];
+}
+
+document.getElementById('n-slider').addEventListener('input',e=>{state.n=+e.target.value;update();});
+document.getElementById('imb-slider').addEventListener('input',e=>{state.imb=+e.target.value;update();});
+
+document.getElementById('balance-group').addEventListener('click',e=>{
+  const btn=e.target.closest('.toggle-btn');
+  if(!btn)return;
+  document.querySelectorAll('#balance-group .toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  state.balance=btn.dataset.val;
+  update();
+});
+
+document.getElementById('link-group').addEventListener('click',e=>{
+  const btn=e.target.closest('.toggle-btn');
+  if(!btn)return;
+  document.querySelectorAll('#link-group .toggle-btn').forEach(b=>b.classList.remove('active','active-saffron'));
+  btn.classList.add('active-saffron');
+  state.link=btn.dataset.val;
+  update();
+});
+
+buildCharts();
+update();
+
+// ── Export PNG ────────────────────────────────────────────────────────────────
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+function hmColorCanvas(v){
+  const stops=[{t:0,r:0,g:0,b:255},{t:0.4,r:81,g:156,b:171},{t:1,r:32,g:55,b:59}];
+  let lo=stops[0],hi=stops[1];
+  for(let i=1;i<stops.length-1;i++) if(v>=stops[i].t){lo=stops[i];hi=stops[i+1];}
+  const f=(hi.t-lo.t)>0?(v-lo.t)/(hi.t-lo.t):0;
+  return `rgb(${Math.round(lo.r+(hi.r-lo.r)*f)},${Math.round(lo.g+(hi.g-lo.g)*f)},${Math.round(lo.b+(hi.b-lo.b)*f)})`;
+}
+
+function drawHeatmapOnCanvas(ctx, x, y, w, h, d){
+  const PAD=8, GAP=6;
+  const cellW=Math.floor((w-PAD*2-GAP)/2);
+  const cellH=Math.floor((h-PAD*2-GAP-30)/2); // 30 for axis labels
+  const axisY=y+PAD+14;
+
+  // axis title: Predicted
+  ctx.fillStyle='#5a7a7e'; ctx.font='bold 11px Nunito,sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Predicted label', x+w/2, y+PAD+10);
+
+  // col headers
+  ctx.font='10px Nunito,sans-serif';
+  ctx.fillText('0 (neg)', x+PAD+cellW/2, axisY+14);
+  ctx.fillText('1 (pos)', x+PAD+cellW+GAP+cellW/2, axisY+14);
+
+  // row header: Actual (rotated)
+  ctx.save();
+  ctx.translate(x+11, y+h/2+10);
+  ctx.rotate(-Math.PI/2);
+  ctx.font='bold 11px Nunito,sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Actual label', 0, 0);
+  ctx.restore();
+
+  // row labels
+  ctx.font='10px Nunito,sans-serif'; ctx.textAlign='center';
+  const rowStartY = axisY+20;
+  ctx.fillText('0', x+PAD+24, rowStartY+cellH/2+5);
+  ctx.fillText('1', x+PAD+24, rowStartY+cellH+GAP+cellH/2+5);
+
+  const cellStartX = x+PAD+34;
+  const cells=[
+    {val:d.tnr_cm, raw:d.tn_raw, label:'True Neg.'},
+    {val:d.fpr_cm, raw:d.fp_raw, label:'False Pos.'},
+    {val:d.fnr_cm, raw:d.fn_raw, label:'False Neg.'},
+    {val:d.tpr_cm, raw:d.tp_raw, label:'True Pos.'}
+  ];
+
+  cells.forEach((c,i)=>{
+    const col=i%2, row=Math.floor(i/2);
+    const cx=cellStartX+col*(cellW+GAP);
+    const cy=rowStartY+row*(cellH+GAP);
+
+    // cell background
+    ctx.fillStyle=hmColorCanvas(c.val);
+    roundRect(ctx,cx,cy,cellW,cellH,6); ctx.fill();
+
+    // proportion (big)
+    ctx.fillStyle='#ffffff'; ctx.textAlign='center';
+    ctx.font='bold 18px Nunito,sans-serif';
+    ctx.fillText(c.val.toFixed(2), cx+cellW/2, cy+cellH/2-2);
+
+    // label
+    ctx.font='9px Nunito,sans-serif';
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    ctx.fillText(c.label, cx+cellW/2, cy+cellH/2+13);
+
+    // raw count
+    ctx.fillStyle='rgba(255,255,255,0.65)';
+    ctx.fillText('n='+c.raw, cx+cellW/2, cy+cellH/2+25);
+  });
+}
+
+document.getElementById('export-btn').addEventListener('click', () => {
+  const {n,imb,balance,link}=state;
+  const bl={none:'None',over:'Oversampling',under:'Undersampling',smote:'SMOTE'};
+  const d=generateData(n,imb,balance,link);
+
+  // Canvas dimensions
+  const W=1280, PAD=20, GAP=14;
+  const HEAD=62, METRICS=72, CHARTS=300, FOOTER=70;
+  const H=HEAD+PAD+METRICS+PAD+CHARTS+GAP+CHARTS+PAD+FOOTER+PAD;
+  const colW=Math.floor((W-PAD*2-GAP)/2);
+
+  const oc=document.createElement('canvas');
+  oc.width=W; oc.height=H;
+  const ctx=oc.getContext('2d');
+
+  // ── Background
+  ctx.fillStyle='#f5f2ec';
+  ctx.fillRect(0,0,W,H);
+
+  // ── Header bar
+  ctx.fillStyle='#20373B';
+  ctx.fillRect(0,0,W,HEAD);
+  ctx.fillStyle='#C3E7F1';
+  ctx.font='bold 17px Nunito,sans-serif';
+  ctx.textAlign='left';
+  ctx.fillText('Binary Logistic Regression — Interactive Dashboard', PAD, 30);
+  ctx.font='600 11px Nunito,sans-serif'; ctx.fillStyle='rgba(195,231,241,0.75)';
+  ctx.fillText('ST 4035 · Data Science   |   S16807 · O.S. Jayathunga', PAD, 50);
+  ctx.textAlign='right';
+  ctx.fillText(`n = ${n}   |   Imbalance = ${imb}%   |   Balancing = ${bl[balance]}   |   Link = ${linkLabels[link]}`, W-PAD, 50);
+
+  // ── Metrics row
+  const mY=HEAD+PAD;
+  const mLabels=['Total Samples','Class 1 Count','Class 0 Count','Imbalance Ratio'];
+  const mVals=[
+    (d.b1+d.b0).toLocaleString(),
+    d.b1.toLocaleString(),
+    d.b0.toLocaleString(),
+    '1 : '+(d.b0/Math.max(d.b1,1)).toFixed(1)
+  ];
+  const mSubs=['after balancing','minority class','majority class','class 1 : class 0'];
+  const mColors=['#519CAB','#FFC64F','#20373B','#88c0cc'];
+  const mW=Math.floor((W-PAD*2-GAP*3)/4);
+  mLabels.forEach((lbl,i)=>{
+    const mx=PAD+i*(mW+GAP);
+    ctx.fillStyle='#ffffff';
+    roundRect(ctx,mx,mY,mW,METRICS,8); ctx.fill();
+    ctx.fillStyle=mColors[i];
+    ctx.fillRect(mx,mY,mW,3);
+    ctx.fillStyle='#5a7a7e'; ctx.font='bold 9px Nunito,sans-serif'; ctx.textAlign='left';
+    ctx.fillText(lbl.toUpperCase(), mx+12, mY+18);
+    ctx.fillStyle='#20373B'; ctx.font='bold 22px Nunito,sans-serif';
+    ctx.fillText(mVals[i], mx+12, mY+44);
+    ctx.fillStyle='#5a7a7e'; ctx.font='11px Nunito,sans-serif';
+    ctx.fillText(mSubs[i], mx+12, mY+60);
+  });
+
+  // ── Chart card helper
+  function cardBg(x,y,w,h){ ctx.fillStyle='#ffffff'; roundRect(ctx,x,y,w,h,8); ctx.fill(); }
+  function cardTitle(x,y,title){
+    ctx.fillStyle='#5a7a7e'; ctx.font='600 12px Nunito,sans-serif'; ctx.textAlign='left';
+    ctx.fillText(title, x+12, y+20);
+  }
+
+  const row1Y=HEAD+PAD+METRICS+PAD;
+  const row2Y=row1Y+CHARTS+GAP;
+
+  // ── Chart 1: Class Distribution (left, row1)
+  cardBg(PAD, row1Y, colW, CHARTS);
+  cardTitle(PAD, row1Y, 'Chart 1 — Class Distribution (Before & After Balancing)');
+  ctx.drawImage(document.getElementById('chart-dist'), PAD+8, row1Y+28, colW-16, CHARTS-36);
+
+  // ── Chart 2: Link Functions (right, row1)
+  cardBg(PAD+colW+GAP, row1Y, colW, CHARTS);
+  cardTitle(PAD+colW+GAP, row1Y, 'Chart 2 — Fitted Probability Curves (Link Functions)');
+  ctx.drawImage(document.getElementById('chart-link'), PAD+colW+GAP+8, row1Y+28, colW-16, CHARTS-36);
+
+  // ── Chart 3: ROC Curve (left, row2)
+  cardBg(PAD, row2Y, colW, CHARTS);
+  cardTitle(PAD, row2Y, 'Chart 3 — ROC Curve');
+  // AUC badge text
+  ctx.fillStyle='#519CAB'; ctx.font='bold 11px Nunito,sans-serif'; ctx.textAlign='right';
+  ctx.fillText('AUC = '+d.auc.toFixed(3), PAD+colW-12, row2Y+20);
+  ctx.drawImage(document.getElementById('chart-roc'), PAD+8, row2Y+28, colW-16, CHARTS-36);
+
+  // ── Chart 4: Confusion Matrix Heatmap (right, row2) — drawn natively
+  cardBg(PAD+colW+GAP, row2Y, colW, CHARTS);
+  cardTitle(PAD+colW+GAP, row2Y, 'Chart 4 — Confusion Matrix (Normalised)');
+  drawHeatmapOnCanvas(ctx, PAD+colW+GAP+8, row2Y+26, colW-16, CHARTS-32, d);
+
+  // ── Stats footer bar
+  const fY=row2Y+CHARTS+PAD;
+  ctx.fillStyle='#20373B';
+  roundRect(ctx,PAD,fY,W-PAD*2,FOOTER,8); ctx.fill();
+
+  const stats=[
+    {lbl:'AUC',     val:d.auc.toFixed(3), hi:true},
+    {lbl:'ACCURACY',val:(d.accuracy*100).toFixed(1)+'%', hi:false},
+    {lbl:'SENSITIVITY',val:(d.sensitivity*100).toFixed(1)+'%', hi:false},
+    {lbl:'SPECIFICITY',val:(d.specificity*100).toFixed(1)+'%', hi:false},
+    {lbl:'LINK FUNCTION',val:linkLabels[link], hi:false},
+    {lbl:'BALANCING METHOD',val:bl[balance], hi:false}
+  ];
+  const statW=Math.floor((W-PAD*2)/stats.length);
+  stats.forEach((s,i)=>{
+    const sx=PAD+i*statW;
+    ctx.fillStyle='rgba(195,231,241,0.55)'; ctx.font='bold 9px Nunito,sans-serif'; ctx.textAlign='left';
+    ctx.fillText(s.lbl, sx+14, fY+20);
+    ctx.fillStyle=s.hi?'#FFC64F':'#ffffff';
+    ctx.font='bold 14px Nunito,sans-serif';
+    ctx.fillText(s.val, sx+14, fY+46);
+    // separator
+    if(i>0){
+      ctx.fillStyle='rgba(195,231,241,0.2)';
+      ctx.fillRect(sx,fY+10,1,FOOTER-20);
+    }
+  });
+
+  // ── Download
+  const a=document.createElement('a');
+  a.download='ST4035_dashboard.png';
+  a.href=oc.toDataURL('image/png');
+  a.click();
+});
+</script>
+
+</body>
+</html>
